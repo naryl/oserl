@@ -31,10 +31,8 @@
 -behaviour(gen_esme_session).
 
 %%% INCLUDE FILES
+-include_lib("oserl/src/smpp_pdu_syntax.hrl").
 -include_lib("oserl/include/oserl.hrl").
-
-%%% BEHAVIOUR EXPORTS
--export([behaviour_info/1]).
 
 %%% START/STOP EXPORTS
 -export([start/3, start/4, start_link/3, start_link/4]).
@@ -124,30 +122,112 @@
 -define(RPS, 1000).
 -define(SECOND, 1000).
 
-%%% RECORDS
+%%% TYPES
 -record(st, {mod, mod_st, ref, session, consumer, rps, log}).
 
+-type ip_address() :: {byte(), byte(), byte(), byte()}.
+-type kv_list()    :: [{atom(), term()}].
+-type command_name() ::
+    broadcast_sm |
+    cancel_broadcast_sm |
+    cancel_sm |
+    data_sm |
+    query_broadcast_sm |
+    query_sm |
+    replace_sm |
+    submit_multi |
+    submit_sm.
+
 %%%-----------------------------------------------------------------------------
-%%% BEHAVIOUR EXPORTS
+%%% CALLBACKS
 %%%-----------------------------------------------------------------------------
-behaviour_info(callbacks) ->
-    [{init, 1},
-     {terminate, 2},
-     {handle_call, 3},
-     {handle_cast, 2},
-     {handle_info, 2},
-     {code_change, 3},
-     {handle_accept, 3},
-     {handle_alert_notification, 2},
-     {handle_closed, 2},
-     {handle_data_sm, 3},
-     {handle_deliver_sm, 3},
-     {handle_outbind, 2},
-     {handle_req, 4},
-     {handle_resp, 3},
-     {handle_unbind, 3}];
-behaviour_info(_Other) ->
-    undefined.
+%% gen_server
+-callback init(Args :: term()) ->
+    {ok, State :: term()} |
+    {ok, State :: term(), timeout() | hibernate} |
+    {stop, Reason :: term()} | ignore.
+-callback handle_call(Request :: term(),
+                      From :: {pid(), Tag :: term()},
+                      State :: term()) ->
+    {reply, Reply :: term(), NewState :: term()} |
+    {reply, Reply :: term(), NewState :: term(), timeout() | hibernate} |
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), timeout() | hibernate} |
+    {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_cast(Request :: term(), State :: term()) ->
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), timeout() | hibernate} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_info(Info :: timeout() | term(), State :: term()) ->
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), timeout() | hibernate} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback terminate(Reason :: (normal | shutdown | {shutdown, term()} | term()),
+                    State :: term()) ->
+    term().
+-callback code_change(OldVsn :: (term() | {down, term()}),
+                      State :: term(),
+                      Extra :: term()) ->
+    {ok, NewState :: term()} |
+    {error, Reason :: term()}.
+
+%% gen_esme
+-callback handle_accept(Address :: ip_address(), From :: pid(), State :: term()) ->
+    {reply, Reply :: ok | {error, Reason :: term()}, NewState :: term()} |
+    {reply, Reply :: ok | {error, Reason :: term()}, NewState :: term(), Timeout :: timeout()} |
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), Timeout :: timeout()} |
+    {stop, Reason :: term(), Reply :: ok | {error, Reason :: term()}, NewState :: term()} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_alert_notification(Pdu :: #pdu{}, State :: term()) ->
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), Timeout :: timeout()} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_closed(Reason :: term(), Status :: term()) ->
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), Timeout :: timeout()} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_data_sm(Pdu :: #pdu{}, From :: term(), State :: term()) ->
+    {reply, Reply :: {ok, kv_list()} | {error, CmdStatus :: integer()}, NewState :: term()} |
+    {reply, Reply :: {ok, kv_list()} | {error, CmdStatus :: integer()}, NewState :: term(), Timeout :: timeout()} |
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), Timeout :: timeout()} |
+    {stop, Reason :: term(), Reply :: {ok, kv_list()} | {error, CmdStatus :: integer()}, NewState :: term()} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_deliver_sm(Pdu :: #pdu{}, From :: term(), State :: term()) ->
+    {reply, Reply :: {ok, kv_list()} | {error, CmdStatus :: integer()}, NewState :: term()} |
+    {reply, Reply :: {ok, kv_list()} | {error, CmdStatus :: integer()}, NewState :: term(), Timeout :: timeout()} |
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), Timeout :: timeout()} |
+    {stop, Reason :: term(), Reply :: {ok, kv_list()} | {error, CmdStatus :: integer()}, NewState :: term()} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_outbind(Pdu :: #pdu{}, Status :: term()) ->
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), Timeout :: timeout()} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_req(Request :: {CommandName :: command_name(), Params :: kv_list()},
+                     Args :: term(),
+                     Ref :: reference(),
+                     Status :: term()) ->
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), Timeout :: timeout()} |
+    {stop, Reason :: term(), NewState :: term()}.
+-callback handle_resp({ok, Pdu :: #pdu{}} | {error, Reason :: {command_status, CommandStatus :: integer()} | term()},
+                      Ref :: reference(),
+                      State :: term()) ->
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), Timeout :: timeout()} |
+    {stop, Reason :: term(), NewStatus :: term()}.
+
+-callback handle_unbind(Pdu :: #pdu{}, From :: pid(), State :: term()) ->
+    {reply, Reply :: ok | {error, CmdStatus :: integer()}, NewState :: term()} |
+    {reply, Reply :: ok | {error, CmdStatus :: integer()}, NewState :: term(), Timeout :: timeout()} |
+    {noreply, NewState :: term()} |
+    {noreply, NewState :: term(), Timeout :: timeout()} |
+    {stop, Reason :: term(), Reply :: ok | {error, CmdStatus :: integer()}, NewState :: term()} |
+    {stop, Reason :: term(), NewState :: term()}.
+
 
 %%%-----------------------------------------------------------------------------
 %%% START/STOP EXPORTS
